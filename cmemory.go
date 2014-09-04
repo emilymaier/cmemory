@@ -128,8 +128,9 @@ func (this *block) size() uint64 {
 	return ret
 }
 
-func (this *block) print() {
-	fmt.Printf("%d block(s) of total size %d were allocated at:\n%s\n", len(this.subBlocks), this.size(), this.trace)
+func (this *block) print(output io.Writer) error {
+	_, err := fmt.Fprintf(output, "%d block(s) of total size %d were allocated at:\n%s\n", len(this.subBlocks), this.size(), this.trace)
+	return err
 }
 
 var blocks map[string]*block = make(map[string]*block)
@@ -249,6 +250,18 @@ func MemoryDump(output io.Writer) error {
 			}
 		}
 		_, err = fmt.Fprintln(output)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// MemoryBlocks writes out the stack traces of the allocated C blocks to the
+// output parameter.
+func MemoryBlocks(output io.Writer) error {
+	for _, curBlock := range blocks {
+		err := curBlock.print(output)
 		if err != nil {
 			return err
 		}
