@@ -1,3 +1,4 @@
+// Package cmemory contains tools for C memory allocation.
 package cmemory
 
 /*
@@ -17,6 +18,7 @@ import (
 	"unsafe"
 )
 
+// Memory contains a single block of memory allocated on the C heap.
 type Memory struct {
 	Cbuf   unsafe.Pointer
 	Size   uint64
@@ -24,6 +26,7 @@ type Memory struct {
 	cursor uint64
 }
 
+// Alloc creates a new Memory struct and allocates on the C heap for it.
 func Alloc(size uint64) (*Memory, error) {
 	newMemory := new(Memory)
 	newMemory.Cbuf = C.malloc(C.size_t(size))
@@ -36,6 +39,8 @@ func Alloc(size uint64) (*Memory, error) {
 	return newMemory, nil
 }
 
+// WrapMemory creates a new Memory struct from an existing pointer to a C
+// memory block and its size.
 func WrapMemory(cbuf unsafe.Pointer, size uint64) *Memory {
 	newMemory := new(Memory)
 	newMemory.Cbuf = cbuf
@@ -49,6 +54,7 @@ func finalizeMemory(deadMemory *Memory) {
 	C.free(deadMemory.Cbuf)
 }
 
+// Read implements the io.Reader interface to read from the memory block.
 func (this *Memory) Read(output []byte) (int, error) {
 	if this.cursor == this.Size {
 		return 0, io.EOF
@@ -64,6 +70,7 @@ func (this *Memory) Read(output []byte) (int, error) {
 	return bytesRead, nil
 }
 
+// Write implements the io.Writer interface to write to the memory block.
 func (this *Memory) Write(input []byte) (int, error) {
 	if this.cursor == this.Size {
 		return 0, io.EOF
@@ -79,6 +86,7 @@ func (this *Memory) Write(input []byte) (int, error) {
 	return bytesWritten, nil
 }
 
+// Seek implements the io.Seeker interface to seek through the memory block.
 func (this *Memory) Seek(offset int64, whence int) (int64, error) {
 	var newCursor int64
 	switch {
@@ -129,6 +137,7 @@ var addresses map[unsafe.Pointer]*block = make(map[unsafe.Pointer]*block)
 var bytesAllocated uint64
 var bytesFreed uint64
 
+// StartInstrumentation begins recording all C memory allocations and frees.
 func StartInstrumentation() {
 	C.start_instrumentation()
 }
@@ -189,6 +198,8 @@ func instrumentFree(address unsafe.Pointer) {
 	}
 }
 
+// Stats contains information about C memory allocations that were recorded
+// after StartInstrumentation.
 type Stats struct {
 	CurAllocations      uint64
 	CurBytesAllocated   uint64
@@ -196,6 +207,8 @@ type Stats struct {
 	BytesFreed          uint64
 }
 
+// Print prints out the human-readable stats contained in the Stats struct to
+// stdout.
 func (this *Stats) Print() {
 	fmt.Printf("Current number of allocations: %d\n", this.CurAllocations)
 	fmt.Printf("Current number of bytes allocated: %d\n", this.CurBytesAllocated)
@@ -203,6 +216,8 @@ func (this *Stats) Print() {
 	fmt.Printf("Number of bytes freed: %d\n", this.BytesFreed)
 }
 
+// MemoryAnalysis creates a new Stats struct from the current C heap
+// information.
 func MemoryAnalysis() Stats {
 	ret := Stats{}
 	for _, curBlock := range blocks {
@@ -214,6 +229,8 @@ func MemoryAnalysis() Stats {
 	return ret
 }
 
+// MemoryDump writes out a pprof-compatible profile of the C heap to the output
+// parameter.
 func MemoryDump(output io.Writer) error {
 	stats := MemoryAnalysis()
 	_, err := fmt.Fprintf(output, "heap profile: %d: %d [%d: %d] @ heapprofile\n", stats.CurAllocations, stats.CurBytesAllocated, stats.CurAllocations, stats.CurBytesAllocated)
