@@ -1,0 +1,230 @@
+#define _GNU_SOURCE
+
+#include <dlfcn.h>
+#include <execinfo.h>
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "_cgo_export.h"
+
+void* (*real_malloc)(size_t);
+void* (*real_calloc)(size_t, size_t);
+void* (*real_realloc)(void*, size_t);
+void (*real_free)(void*);
+int inner_initializing = 0;
+int instrumenting = 0;
+int reentrant = 0;
+
+pthread_once_t initializer = PTHREAD_ONCE_INIT;
+pthread_mutex_t mutex;
+int initialized = 0;
+
+char start_buf[1024];
+char start_buf_pos = 0;
+
+static void initialize()
+{
+	inner_initializing = 1;
+	real_malloc = (void* (*)(size_t)) dlsym(RTLD_NEXT, "malloc");
+	real_calloc = (void* (*)(size_t, size_t)) dlsym(RTLD_NEXT, "calloc");
+	real_realloc = (void* (*)(void*, size_t)) dlsym(RTLD_NEXT, "realloc");
+	real_free = (void (*)(void*)) dlsym(RTLD_NEXT, "free");
+	inner_initializing = 0;
+
+	pthread_mutexattr_t attr;
+	pthread_mutexattr_init(&attr);
+	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+	pthread_mutex_init(&mutex, &attr);
+	pthread_mutexattr_destroy(&attr);
+
+	initialized = 1;
+}
+
+static int runtime_caller(void* address)
+{
+	Dl_info info;
+	if(&info == NULL)
+	{
+		return 1;
+	}
+	if(!dladdr(address, &info))
+	{
+		printf("dl error: %s\n", dlerror());
+		return 1;
+	}
+	if(info.dli_sname == NULL || !strcmp(info.dli_sname, "x_cgo_thread_start") || !strcmp(info.dli_sname, "_dl_allocate_tls") || !strcmp(info.dli_sname, "pthread_create"))
+	{
+		return 1;
+	}
+	return 0;
+}
+
+static int get_trace(char*** trace)
+{
+	void** buf = real_malloc(256 * sizeof(void*));
+	int frames = backtrace(buf, 256);
+	*trace = backtrace_symbols(buf, frames);
+	real_free(buf);
+	return frames;
+}
+
+void start_instrumentation()
+{
+	pthread_once(&initializer, initialize);
+	while(!initialized);
+	pthread_mutex_lock(&mutex);
+	instrumenting = 1;
+	pthread_mutex_unlock(&mutex);
+}
+
+void* malloc(size_t size)
+{
+	pthread_once(&initializer, initialize);
+	while(!initialized);
+	pthread_mutex_lock(&mutex);
+	if(reentrant)
+	{
+		void* ret = real_malloc(size);
+		pthread_mutex_unlock(&mutex);
+		return ret;
+	}
+	reentrant = 1;
+	if(!instrumenting || runtime_caller(__builtin_return_address(0)))
+	{
+		reentrant = 0;
+		void* ret = real_malloc(size);
+		pthread_mutex_unlock(&mutex);
+		return ret;
+	}
+	void* ptr = real_malloc(size);
+	if(ptr == NULL)
+	{
+		reentrant = 0;
+		pthread_mutex_unlock(&mutex);
+		return NULL;
+	}
+	char** trace;
+	int frames = get_trace(&trace);
+	reentrant = 0;
+	pthread_mutex_unlock(&mutex);
+	instrumentMalloc(ptr, size, trace, frames);
+	pthread_mutex_lock(&mutex);
+	reentrant = 1;
+	real_free(trace);
+	reentrant = 0;
+	pthread_mutex_unlock(&mutex);
+	return ptr;
+}
+
+void* calloc(size_t num, size_t size)
+{
+	if(inner_initializing)
+	{
+		void* alloced = &start_buf[start_buf_pos];
+		memset(alloced, 0, num * size);
+		start_buf_pos += num * size;
+		reentrant = 0;
+		return alloced;
+	}
+	pthread_once(&initializer, initialize);
+	while(!initialized);
+	pthread_mutex_lock(&mutex);
+	if(reentrant)
+	{
+		void* ret = real_calloc(num, size);
+		pthread_mutex_unlock(&mutex);
+		return ret;
+	}
+	reentrant = 1;
+	if(!instrumenting || runtime_caller(__builtin_return_address(0)))
+	{
+		reentrant = 0;
+		void* ret = real_calloc(num, size);
+		pthread_mutex_unlock(&mutex);
+		return ret;
+	}
+	void* ptr = real_calloc(num, size);
+	if(ptr == NULL)
+	{
+		reentrant = 0;
+		pthread_mutex_unlock(&mutex);
+		return NULL;
+	}
+	char** trace;
+	int frames = get_trace(&trace);
+	reentrant = 0;
+	pthread_mutex_unlock(&mutex);
+	instrumentMalloc(ptr, num * size, trace, frames);
+	pthread_mutex_lock(&mutex);
+	reentrant = 1;
+	real_free(trace);
+	reentrant = 0;
+	pthread_mutex_unlock(&mutex);
+	return ptr;
+}
+
+void* realloc(void* ptr, size_t size)
+{
+	pthread_once(&initializer, initialize);
+	while(!initialized);
+	pthread_mutex_lock(&mutex);
+	if(reentrant)
+	{
+		void* ret = real_realloc(ptr, size);
+		pthread_mutex_unlock(&mutex);
+		return ret;
+	}
+	reentrant = 1;
+	if(!instrumenting || runtime_caller(__builtin_return_address(0)))
+	{
+		reentrant = 0;
+		void* ret = real_realloc(ptr, size);
+		pthread_mutex_unlock(&mutex);
+		return ret;
+	}
+	ptr = real_realloc(ptr, size);
+	if(ptr == NULL)
+	{
+		reentrant = 0;
+		pthread_mutex_unlock(&mutex);
+		return NULL;
+	}
+	char** trace;
+	int frames = get_trace(&trace);
+	reentrant = 0;
+	pthread_mutex_unlock(&mutex);
+	instrumentMalloc(ptr, size, trace, frames);
+	pthread_mutex_lock(&mutex);
+	reentrant = 1;
+	real_free(trace);
+	reentrant = 0;
+	pthread_mutex_unlock(&mutex);
+	return ptr;
+}
+
+void free(void* ptr)
+{
+	pthread_once(&initializer, initialize);
+	while(!initialized);
+	pthread_mutex_lock(&mutex);
+	if(reentrant)
+	{
+		real_free(ptr);
+		pthread_mutex_unlock(&mutex);
+		return;
+	}
+	reentrant = 1;
+	if(!instrumenting || runtime_caller(__builtin_return_address(0)))
+	{
+		real_free(ptr);
+		reentrant = 0;
+		pthread_mutex_unlock(&mutex);
+		return;
+	}
+	real_free(ptr);
+	reentrant = 0;
+	pthread_mutex_unlock(&mutex);
+	instrumentFree(ptr);
+}
