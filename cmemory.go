@@ -153,7 +153,7 @@ func instrumentMalloc(address unsafe.Pointer, size C.size_t, cTrace unsafe.Point
 		trace += C.GoString((*(*[]*C.char)(unsafe.Pointer(&cTrace)))[cFrame])
 		trace += "\n"
 	}
-	var skip int = 1
+	var skip int = 4
 	var inC bool = true
 	goStack := make([]uintptr, 0)
 	for {
@@ -162,6 +162,7 @@ func instrumentMalloc(address unsafe.Pointer, size C.size_t, cTrace unsafe.Point
 			break
 		}
 		var funcName string = runtime.FuncForPC(pc).Name()
+		goStack = append(goStack, pc)
 		if strings.HasPrefix(funcName, "runtime.") {
 			if !inC {
 				inC = true
@@ -176,7 +177,6 @@ func instrumentMalloc(address unsafe.Pointer, size C.size_t, cTrace unsafe.Point
 		inC = false
 		trace += runtime.FuncForPC(pc).Name() + "\n"
 		trace += fmt.Sprintf("\t%s:%d (0x%x)\n", file, line, pc)
-		goStack = append(goStack, pc)
 		skip++
 	}
 	trace = strings.TrimSuffix(trace, "C code\n")
@@ -224,7 +224,7 @@ type Stats struct {
 func (this *Stats) Print() {
 	fmt.Printf("Current number of allocations: %d\n", this.CurAllocations)
 	fmt.Printf("Current number of bytes allocated: %d\n", this.CurBytesAllocated)
-	fmt.Printf("Total number of allocationsL %d\n", this.TotalAllocations)
+	fmt.Printf("Total number of allocations: %d\n", this.TotalAllocations)
 	fmt.Printf("Total number of bytes allocated: %d\n", this.TotalBytesAllocated)
 	fmt.Printf("Number of bytes freed: %d\n", this.BytesFreed)
 }
