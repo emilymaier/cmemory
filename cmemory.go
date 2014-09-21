@@ -115,9 +115,11 @@ type subBlock struct {
 }
 
 type block struct {
-	trace     string
-	goStack   []uintptr
-	subBlocks map[unsafe.Pointer]subBlock
+	trace           string
+	goStack         []uintptr
+	subBlocks       map[unsafe.Pointer]subBlock
+	allocationCount uint64
+	bytesAllocated  uint64
 }
 
 func (this *block) size() uint64 {
@@ -135,6 +137,7 @@ func (this *block) print(output io.Writer) error {
 
 var blocks map[string]*block = make(map[string]*block)
 var addresses map[unsafe.Pointer]*block = make(map[unsafe.Pointer]*block)
+var allocationCount uint64
 var bytesAllocated uint64
 var bytesFreed uint64
 
@@ -146,7 +149,7 @@ func StartInstrumentation() {
 //export instrumentMalloc
 func instrumentMalloc(address unsafe.Pointer, size C.size_t, cTrace unsafe.Pointer, cFrames C.int) {
 	var trace string
-	for cFrame := 2; cFrame < int(cFrames)-2; cFrame++ {
+	for cFrame := 2; cFrame < int(cFrames)-1; cFrame++ {
 		trace += C.GoString((*(*[]*C.char)(unsafe.Pointer(&cTrace)))[cFrame])
 		trace += "\n"
 	}
@@ -166,6 +169,9 @@ func instrumentMalloc(address unsafe.Pointer, size C.size_t, cTrace unsafe.Point
 			}
 			skip++
 			continue
+		} else if strings.Contains(funcName, "_Cfunc_") {
+			skip++
+			continue
 		}
 		inC = false
 		trace += runtime.FuncForPC(pc).Name() + "\n"
@@ -173,6 +179,7 @@ func instrumentMalloc(address unsafe.Pointer, size C.size_t, cTrace unsafe.Point
 		goStack = append(goStack, pc)
 		skip++
 	}
+	trace = strings.TrimSuffix(trace, "C code\n")
 	if curBlock, ok := blocks[trace]; ok {
 		if subBlock, ok := curBlock.subBlocks[address]; ok {
 			bytesFreed += subBlock.size
@@ -184,7 +191,10 @@ func instrumentMalloc(address unsafe.Pointer, size C.size_t, cTrace unsafe.Point
 		blocks[trace].subBlocks = make(map[unsafe.Pointer]subBlock)
 	}
 	blocks[trace].subBlocks[address] = subBlock{address, uint64(size)}
+	blocks[trace].allocationCount += 1
+	blocks[trace].bytesAllocated += uint64(size)
 	addresses[address] = blocks[trace]
+	allocationCount += 1
 	bytesAllocated += uint64(size)
 }
 
@@ -204,6 +214,7 @@ func instrumentFree(address unsafe.Pointer) {
 type Stats struct {
 	CurAllocations      uint64
 	CurBytesAllocated   uint64
+	TotalAllocations    uint64
 	TotalBytesAllocated uint64
 	BytesFreed          uint64
 }
@@ -213,6 +224,7 @@ type Stats struct {
 func (this *Stats) Print() {
 	fmt.Printf("Current number of allocations: %d\n", this.CurAllocations)
 	fmt.Printf("Current number of bytes allocated: %d\n", this.CurBytesAllocated)
+	fmt.Printf("Total number of allocationsL %d\n", this.TotalAllocations)
 	fmt.Printf("Total number of bytes allocated: %d\n", this.TotalBytesAllocated)
 	fmt.Printf("Number of bytes freed: %d\n", this.BytesFreed)
 }
@@ -225,6 +237,7 @@ func MemoryAnalysis() Stats {
 		ret.CurAllocations += uint64(len(curBlock.subBlocks))
 		ret.CurBytesAllocated += curBlock.size()
 	}
+	ret.TotalAllocations = allocationCount
 	ret.TotalBytesAllocated = bytesAllocated
 	ret.BytesFreed = bytesFreed
 	return ret
@@ -234,12 +247,12 @@ func MemoryAnalysis() Stats {
 // parameter.
 func MemoryDump(output io.Writer) error {
 	stats := MemoryAnalysis()
-	_, err := fmt.Fprintf(output, "heap profile: %d: %d [%d: %d] @ heapprofile\n", stats.CurAllocations, stats.CurBytesAllocated, stats.CurAllocations, stats.CurBytesAllocated)
+	_, err := fmt.Fprintf(output, "heap profile: %d: %d [%d: %d] @ heapprofile\n", stats.CurAllocations, stats.CurBytesAllocated, stats.TotalAllocations, stats.TotalBytesAllocated)
 	if err != nil {
 		return err
 	}
 	for _, curBlock := range blocks {
-		_, err := fmt.Fprintf(output, "%d: %d [%d: %d] @", len(curBlock.subBlocks), curBlock.size(), len(curBlock.subBlocks), curBlock.size())
+		_, err := fmt.Fprintf(output, "%d: %d [%d: %d] @", len(curBlock.subBlocks), curBlock.size(), curBlock.allocationCount, curBlock.bytesAllocated)
 		if err != nil {
 			return err
 		}
