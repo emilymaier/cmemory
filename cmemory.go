@@ -70,6 +70,32 @@ func (this *Memory) Read(output []byte) (int, error) {
 	return bytesRead, nil
 }
 
+// ReadByte implements the io.ByteReader interface to read a byte from the memory block.
+func (this *Memory) ReadByte() (byte, error) {
+	if this.cursor == this.Size {
+		return 0, io.EOF
+	}
+	this.cursor += 1
+	return this.gobuf[this.cursor-1], nil
+}
+
+// UnreadByte implements the io.ByteScanner interface to unread a byte from the memory block.
+func (this *Memory) UnreadByte() error {
+	if this.cursor == 0 {
+		return io.EOF
+	}
+	this.cursor -= 1
+	return nil
+}
+
+// ReadAt implements the io.ReaderAt interface to read from the memory block at an offset.
+func (this *Memory) ReadAt(output []byte, offset int64) (int, error) {
+	if offset >= int64(this.Size) {
+		return 0, io.EOF
+	}
+	return copy(output, this.gobuf[offset:this.Size]), nil
+}
+
 // Write implements the io.Writer interface to write to the memory block.
 func (this *Memory) Write(input []byte) (int, error) {
 	if this.cursor == this.Size {
@@ -84,6 +110,24 @@ func (this *Memory) Write(input []byte) (int, error) {
 	bytesWritten := copy(this.gobuf[this.cursor:newCursor], input)
 	this.cursor = newCursor
 	return bytesWritten, nil
+}
+
+// WriteByte implements the io.ByteWriter interface to write a byte to the memory block.
+func (this *Memory) WriteByte(input byte) error {
+	if this.cursor == this.Size {
+		return io.EOF
+	}
+	this.gobuf[this.cursor] = input
+	this.cursor += 1
+	return nil
+}
+
+// WriteAt implements the io.WriterAt interface to write to the memory block at an offset.
+func (this *Memory) WriteAt(input []byte, offset int64) (int, error) {
+	if offset >= int64(this.Size) {
+		return 0, io.EOF
+	}
+	return copy(this.gobuf[offset:this.Size], input), nil
 }
 
 // Seek implements the io.Seeker interface to seek through the memory block.
@@ -107,6 +151,13 @@ func (this *Memory) Seek(offset int64, whence int) (int64, error) {
 	}
 	this.cursor = uint64(newCursor)
 	return int64(this.cursor), nil
+}
+
+// Close implements the io.Closer interface to free the memory block. Any method call on this object after Close() is undefined.
+func (this *Memory) Close() error {
+	C.free(this.Cbuf)
+	this.Cbuf = nil
+	return nil
 }
 
 type subBlock struct {
