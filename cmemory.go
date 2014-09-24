@@ -39,6 +39,21 @@ func Alloc(size uint64) (*Memory, error) {
 	return newMemory, nil
 }
 
+// AllocFromSlice creates a new Memory struct from an already existing byte
+// slice. The data in the slice is copied into the C heap.
+func AllocFromSlice(data []byte) (*Memory, error) {
+	newMemory := new(Memory)
+	newMemory.Cbuf = C.malloc(C.size_t(len(data)))
+	if newMemory.Cbuf == nil {
+		return newMemory, errors.New("malloc() could not allocate memory")
+	}
+	runtime.SetFinalizer(newMemory, finalizeMemory)
+	newMemory.Size = uint64(len(data))
+	newMemory.gobuf = *(*[]byte)(unsafe.Pointer(&newMemory.Cbuf))
+	copy(newMemory.gobuf, data)
+	return newMemory, nil
+}
+
 // WrapMemory creates a new Memory struct from an existing pointer to a C
 // memory block and its size.
 func WrapMemory(cbuf unsafe.Pointer, size uint64) *Memory {

@@ -16,6 +16,23 @@ func TestAlloc(t *testing.T) {
 	}
 }
 
+func TestAllocFromSlice(t *testing.T) {
+	testData := initTestData()
+	mem, err := AllocFromSlice(testData)
+	if err != nil {
+		t.Error(err)
+	}
+	if !isConsistent(mem.Cbuf) {
+		t.Error("AllocFromSlice() failed to allocate C block")
+	}
+	for _, data := range testData {
+		readByte, _ := mem.ReadByte()
+		if readByte != data {
+			t.Error("AllocFromSlice() failed to initialize the buffer")
+		}
+	}
+}
+
 func TestWrapMemory(t *testing.T) {
 	block := testMalloc(256)
 	mem := WrapMemory(block, 256)
