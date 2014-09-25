@@ -72,6 +72,17 @@ func finalizeMemory(deadMemory *Memory) {
 	C.free(deadMemory.Cbuf)
 }
 
+// Grow increases the size of the buffer.
+func (this *Memory) Grow(size uint64) error {
+	this.Cbuf = C.realloc(this.Cbuf, C.size_t(size))
+	if this.Cbuf == nil {
+		return errors.New("realloc() could not allocate memory")
+	}
+	this.Size = size
+	this.gobuf = *(*[]byte)(unsafe.Pointer(&this.Cbuf))
+	return nil
+}
+
 // Read implements the io.Reader interface to read from the memory block.
 func (this *Memory) Read(output []byte) (int, error) {
 	if this.cursor == this.Size {
@@ -249,11 +260,7 @@ func instrumentMalloc(address unsafe.Pointer, size C.size_t, cTrace unsafe.Point
 		skip++
 	}
 	trace = strings.TrimSuffix(trace, "C code\n")
-	if curBlock, ok := blocks[trace]; ok {
-		if subBlock, ok := curBlock.subBlocks[address]; ok {
-			bytesFreed += subBlock.size
-		}
-	} else {
+	if _, ok := blocks[trace]; !ok {
 		blocks[trace] = new(block)
 		blocks[trace].trace = trace
 		blocks[trace].goStack = goStack
@@ -290,12 +297,28 @@ type Stats struct {
 
 // Print prints out the human-readable stats contained in the Stats struct to
 // stdout.
-func (this *Stats) Print(output io.Writer) {
-	fmt.Fprintf(output, "Current number of allocations: %d\n", this.CurAllocations)
-	fmt.Fprintf(output, "Current number of bytes allocated: %d\n", this.CurBytesAllocated)
-	fmt.Fprintf(output, "Total number of allocations: %d\n", this.TotalAllocations)
-	fmt.Fprintf(output, "Total number of bytes allocated: %d\n", this.TotalBytesAllocated)
-	fmt.Fprintf(output, "Number of bytes freed: %d\n", this.BytesFreed)
+func (this *Stats) Print(output io.Writer) error {
+	_, err := fmt.Fprintf(output, "Current number of allocations: %d\n", this.CurAllocations)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(output, "Current number of bytes allocated: %d\n", this.CurBytesAllocated)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(output, "Total number of allocations: %d\n", this.TotalAllocations)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(output, "Total number of bytes allocated: %d\n", this.TotalBytesAllocated)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(output, "Number of bytes freed: %d\n", this.BytesFreed)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // MemoryAnalysis creates a new Stats struct from the current C heap

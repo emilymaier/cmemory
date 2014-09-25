@@ -31,6 +31,7 @@ struct block
 
 struct block head;
 
+// Get the real memory allocation functions and set up the mutex.
 static void initialize()
 {
 	inner_initializing = 1;
@@ -51,6 +52,9 @@ static void initialize()
 	initialized = 1;
 }
 
+// Determines whether or not the function that called the allocation function is
+// in the Go runtime, as the runtime doesn't expect its "libc" calls to go back
+// into Go. For free(), a list of instrumented blocks is used instead.
 static int runtime_caller(void* address)
 {
 	Dl_info info;
@@ -70,6 +74,7 @@ static int runtime_caller(void* address)
 	return 0;
 }
 
+// Gets the C stack trace.
 static int get_trace(char*** trace)
 {
 	void** buf = real_malloc(256 * sizeof(void*));
@@ -79,6 +84,8 @@ static int get_trace(char*** trace)
 	return frames;
 }
 
+// Returns a struct block* corresponding to the argument pointer, or NULL if it
+// can't find one.
 static struct block* find_block(void* ptr)
 {
 	struct block* current_block = &head;
@@ -93,6 +100,7 @@ static struct block* find_block(void* ptr)
 	return NULL;
 }
 
+// Begin instrumenting memory allocation calls.
 void start_instrumentation()
 {
 	pthread_once(&initializer, initialize);
@@ -213,7 +221,8 @@ void* realloc(void* ptr, size_t size)
 		pthread_mutex_unlock(&mutex);
 		return ret;
 	}
-	struct block* current_block = find_block(ptr);
+	void* real_ptr = (void*) (((struct block*) ptr) - 1);
+	struct block* current_block = find_block(real_ptr);
 	if(current_block == NULL)
 	{
 		reentrant = 0;
@@ -221,17 +230,18 @@ void* realloc(void* ptr, size_t size)
 		pthread_mutex_unlock(&mutex);
 		return ret;
 	}
-	ptr = real_realloc(ptr, size + sizeof(struct block));
-	if(ptr == NULL)
+	instrumentFree(ptr);
+	real_ptr = real_realloc(real_ptr, size + sizeof(struct block));
+	if(real_ptr == NULL)
 	{
 		reentrant = 0;
 		current_block->next = current_block->next->next;
 		pthread_mutex_unlock(&mutex);
 		return NULL;
 	}
-	((struct block*) ptr)->next = current_block->next->next;
-	current_block->next = ptr;
 	ptr = (void*) (((struct block*) ptr) + 1);
+	((struct block*) real_ptr)->next = current_block->next->next;
+	current_block->next = real_ptr;
 	char** trace;
 	int frames = get_trace(&trace);
 	reentrant = 0;

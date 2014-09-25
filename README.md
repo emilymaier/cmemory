@@ -11,3 +11,7 @@ The Memory struct provides an interface to memory that has been allocated on the
 cmemory implements the C memory allocation functions, allowing all C memory allocation to be profiled without changing any other code. When it is instrumenting memory, it keeps track of the number and size of allocations, when they are freed, as well as the stack trace of the code that created them.
 
 The profiling tool provides several ways to get information about C memory usage. It can print a valgrind-like output of allocated blocks, though it cannot distinguish between reachable and unreachable blocks. It can also create a pprof-compatible output of all the blocks currently and formerly allocated.
+
+## Testing
+
+The tests need to be built with "-tags test" in order to work, as they rely on helper functions in cmemory only built for testing.

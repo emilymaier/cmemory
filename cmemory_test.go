@@ -2,6 +2,7 @@ package cmemory
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -50,6 +51,30 @@ func initTestData() []byte {
 	return testData
 }
 
+func TestGrow(t *testing.T) {
+	mem, _ := Alloc(256)
+	testData := initTestData()
+	mem.Write(testData)
+	mem.Seek(0, 0)
+	err := mem.Grow(512)
+	if err != nil {
+		t.Error("Grow() failed to allocate C block")
+	}
+	testData = make([]byte, 256)
+	bytesRead, err := mem.Read(testData)
+	if err != nil {
+		t.Error("Grow() caused EOF to be returned too early")
+	}
+	if bytesRead != 256 {
+		t.Error("Grow() caused the incorrect number of bytes to be read")
+	}
+	for index, data := range testData {
+		if byte(index) != data {
+			t.Error("Grow() caused the incorrect data to be returned")
+		}
+	}
+}
+
 func TestReadWrite(t *testing.T) {
 	mem, _ := Alloc(256)
 	testData := initTestData()
@@ -82,6 +107,31 @@ func TestReadWrite(t *testing.T) {
 	_, err = mem.Read(testData)
 	if err != io.EOF {
 		t.Error("Read() failed to return EOF")
+	}
+
+	mem, _ = Alloc(128)
+	testData = initTestData()
+	bytesWritten, err = mem.Write(testData)
+	if err != nil {
+		t.Error("Write() returned EOF too early")
+	}
+	if bytesWritten != 128 {
+		t.Error("Write() did not write the correct number of bytes")
+	}
+	if mem.cursor != 128 {
+		t.Error("Write() moved the cursor past the end of the file")
+	}
+	mem.Seek(0, 0)
+
+	bytesRead, err = mem.Read(testData)
+	if err != nil {
+		t.Error("Read() returned EOF too early")
+	}
+	if bytesRead != 128 {
+		t.Error("Read() did not read the correct number of bytes")
+	}
+	if mem.cursor != 128 {
+		t.Error("Read() moved the cursor past the end of the file")
 	}
 }
 
@@ -134,6 +184,12 @@ func TestUnreadByte(t *testing.T) {
 	}
 	if readData != 3 {
 		t.Error("UnreadByte() caused incorrect data to be returned")
+	}
+
+	mem.Seek(0, 0)
+	err = mem.UnreadByte()
+	if err != io.EOF {
+		t.Error("UnreadByte() failed to return EOF")
 	}
 }
 
@@ -231,32 +287,41 @@ func TestLeaks(t *testing.T) {
 	if err != nil {
 		t.Error("Alloc() failed to allocate C block")
 	}
+	block3, err := Alloc(32)
+	if err != nil {
+		t.Error("Alloc() failed to allocate C block")
+	}
+	err = block3.Grow(64)
+	if err != nil {
+		t.Error("Grow() failed to allocated C block")
+	}
 	finalizeMemory(block2)
 	if block1 == nil {
 		t.Fatal("How did you get here?")
 	}
 
 	stats := MemoryAnalysis()
-	if stats.CurAllocations != 1 {
+	if stats.CurAllocations != 2 {
 		t.Error("MemoryAnalysis() gave the wrong number of current allocations")
 	}
-	if stats.CurBytesAllocated != 256 {
+	if stats.CurBytesAllocated != 320 {
 		t.Error("MemoryAnalysis() gave the wrong number of current bytes allocated")
 	}
-	if stats.TotalAllocations != 2 {
+	if stats.TotalAllocations != 4 {
 		t.Error("MemoryAnalysis() gave the wrong number of total allocations")
 	}
-	if stats.TotalBytesAllocated != 384 {
+	if stats.TotalBytesAllocated != 480 {
+		t.Error(fmt.Sprint(stats.TotalBytesAllocated))
 		t.Error("MemoryAnalysis() gave the wrong number of total bytes allocated")
 	}
-	if stats.BytesFreed != 128 {
+	if stats.BytesFreed != 160 {
 		t.Error("MemoryAnalysis() gave the wrong number of bytes freed")
 	}
 
 	buffer := bytes.NewBuffer(make([]byte, 0))
 	stats.Print(buffer)
 	bufferString := buffer.String()
-	if bufferString != "Current number of allocations: 1\nCurrent number of bytes allocated: 256\nTotal number of allocations: 2\nTotal number of bytes allocated: 384\nNumber of bytes freed: 128\n" {
+	if bufferString != "Current number of allocations: 2\nCurrent number of bytes allocated: 320\nTotal number of allocations: 4\nTotal number of bytes allocated: 480\nNumber of bytes freed: 160\n" {
 		t.Error("Stats.Print() printed the wrong text")
 	}
 
@@ -266,7 +331,13 @@ func TestLeaks(t *testing.T) {
 		t.Error("MemoryDump() failed")
 	}
 	bufferString = buffer.String()
-	if !strings.HasPrefix(bufferString, "heap profile: 1: 256 [2: 384] @ heapprofile\n1: 256 [1: 256] @") {
+	if !strings.HasPrefix(bufferString, "heap profile: 2: 320 [4: 480] @ heapprofile\n1: 256 [1: 256] @") {
+		t.Error("MemoryDump() returned incorrect results")
+	}
+	if !strings.Contains(bufferString, "0: 0 [1: 32] @") {
+		t.Error("MemoryDump() returned incorrect results")
+	}
+	if !strings.Contains(bufferString, "1: 64 [1: 64] @") {
 		t.Error("MemoryDump() returned incorrect results")
 	}
 
@@ -277,6 +348,9 @@ func TestLeaks(t *testing.T) {
 	}
 	bufferString = buffer.String()
 	if !strings.Contains(bufferString, "1 block(s) of total size 256 were allocated at:") {
+		t.Error("MemoryBlocks() printed incorrect results")
+	}
+	if !strings.Contains(bufferString, "1 block(s) of total size 64 were allocated at:") {
 		t.Error("MemoryBlocks() printed incorrect results")
 	}
 }
