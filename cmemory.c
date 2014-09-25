@@ -24,6 +24,13 @@ int initialized = 0;
 char start_buf[1024];
 char start_buf_pos = 0;
 
+struct block
+{
+	struct block* next;
+};
+
+struct block head;
+
 static void initialize()
 {
 	inner_initializing = 1;
@@ -38,6 +45,8 @@ static void initialize()
 	pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
 	pthread_mutex_init(&mutex, &attr);
 	pthread_mutexattr_destroy(&attr);
+
+	head.next = NULL;
 
 	initialized = 1;
 }
@@ -70,6 +79,20 @@ static int get_trace(char*** trace)
 	return frames;
 }
 
+static struct block* find_block(void* ptr)
+{
+	struct block* current_block = &head;
+	while(current_block->next != NULL)
+	{
+		if(current_block->next == ptr)
+		{
+			return current_block;
+		}
+		current_block = current_block->next;
+	}
+	return NULL;
+}
+
 void start_instrumentation()
 {
 	pthread_once(&initializer, initialize);
@@ -98,13 +121,16 @@ void* malloc(size_t size)
 		pthread_mutex_unlock(&mutex);
 		return ret;
 	}
-	void* ptr = real_malloc(size);
+	void* ptr = real_malloc(size + sizeof(struct block));
 	if(ptr == NULL)
 	{
 		reentrant = 0;
 		pthread_mutex_unlock(&mutex);
 		return NULL;
 	}
+	((struct block*) ptr)->next = head.next;
+	head.next = ptr;
+	ptr = (void*) (((struct block*) ptr) + 1);
 	char** trace;
 	int frames = get_trace(&trace);
 	reentrant = 0;
@@ -145,13 +171,16 @@ void* calloc(size_t num, size_t size)
 		pthread_mutex_unlock(&mutex);
 		return ret;
 	}
-	void* ptr = real_calloc(num, size);
+	void* ptr = real_calloc(1, num * size + sizeof(struct block));
 	if(ptr == NULL)
 	{
 		reentrant = 0;
 		pthread_mutex_unlock(&mutex);
 		return NULL;
 	}
+	((struct block*) ptr)->next = head.next;
+	head.next = ptr;
+	ptr = (void*) (((struct block*) ptr) + 1);
 	char** trace;
 	int frames = get_trace(&trace);
 	reentrant = 0;
@@ -177,20 +206,32 @@ void* realloc(void* ptr, size_t size)
 		return ret;
 	}
 	reentrant = 1;
-	if(!instrumenting || runtime_caller(__builtin_return_address(0)))
+	if(!instrumenting)
 	{
 		reentrant = 0;
 		void* ret = real_realloc(ptr, size);
 		pthread_mutex_unlock(&mutex);
 		return ret;
 	}
-	ptr = real_realloc(ptr, size);
+	struct block* current_block = find_block(ptr);
+	if(current_block == NULL)
+	{
+		reentrant = 0;
+		void* ret = real_realloc(ptr, size);
+		pthread_mutex_unlock(&mutex);
+		return ret;
+	}
+	ptr = real_realloc(ptr, size + sizeof(struct block));
 	if(ptr == NULL)
 	{
 		reentrant = 0;
+		current_block->next = current_block->next->next;
 		pthread_mutex_unlock(&mutex);
 		return NULL;
 	}
+	((struct block*) ptr)->next = current_block->next->next;
+	current_block->next = ptr;
+	ptr = (void*) (((struct block*) ptr) + 1);
 	char** trace;
 	int frames = get_trace(&trace);
 	reentrant = 0;
@@ -202,6 +243,13 @@ void* realloc(void* ptr, size_t size)
 	reentrant = 0;
 	pthread_mutex_unlock(&mutex);
 	return ptr;
+}
+
+static void _free(void* ptr)
+{
+	real_free(ptr);
+	reentrant = 0;
+	pthread_mutex_unlock(&mutex);
 }
 
 void free(void* ptr)
@@ -216,15 +264,19 @@ void free(void* ptr)
 		return;
 	}
 	reentrant = 1;
-	if(!instrumenting || runtime_caller(__builtin_return_address(0)))
+	if(!instrumenting)
 	{
-		real_free(ptr);
-		reentrant = 0;
-		pthread_mutex_unlock(&mutex);
+		_free(ptr);
 		return;
 	}
-	real_free(ptr);
-	reentrant = 0;
-	pthread_mutex_unlock(&mutex);
+	void* real_ptr = (void*) (((struct block*) ptr) - 1);
+	struct block* current_block = find_block(real_ptr);
+	if(current_block == NULL)
+	{
+		_free(ptr);
+		return;
+	}
+	current_block->next = current_block->next->next;
+	_free(real_ptr);
 	instrumentFree(ptr);
 }

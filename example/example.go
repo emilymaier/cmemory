@@ -14,7 +14,7 @@ func main() {
 	cmemory.StartInstrumentation()
 	C.c_main()
 	stats := cmemory.MemoryAnalysis()
-	stats.Print()
+	stats.Print(os.Stdout)
 	cmemory.MemoryBlocks(os.Stdout)
 	f, _ := os.Create("heap")
 	cmemory.MemoryDump(f)

@@ -18,6 +18,9 @@ import (
 	"unsafe"
 )
 
+var ErrInvalidWhence = errors.New("Invalid whence parameter")
+var ErrNegativeOffset = errors.New("Attempted to seek to a negative offset")
+
 // Memory contains a single block of memory allocated on the C heap.
 type Memory struct {
 	Cbuf   unsafe.Pointer
@@ -156,10 +159,10 @@ func (this *Memory) Seek(offset int64, whence int) (int64, error) {
 	case whence == 2:
 		newCursor = int64(this.Size) + offset
 	default:
-		return int64(this.cursor), errors.New("Invalid whence parameter")
+		return int64(this.cursor), ErrInvalidWhence
 	}
 	if newCursor < 0 {
-		return int64(this.cursor), errors.New("Attempted to seek to a negative offset")
+		return int64(this.cursor), ErrNegativeOffset
 	}
 	if newCursor > int64(this.Size) {
 		newCursor = int64(this.Size)
@@ -287,12 +290,12 @@ type Stats struct {
 
 // Print prints out the human-readable stats contained in the Stats struct to
 // stdout.
-func (this *Stats) Print() {
-	fmt.Printf("Current number of allocations: %d\n", this.CurAllocations)
-	fmt.Printf("Current number of bytes allocated: %d\n", this.CurBytesAllocated)
-	fmt.Printf("Total number of allocations: %d\n", this.TotalAllocations)
-	fmt.Printf("Total number of bytes allocated: %d\n", this.TotalBytesAllocated)
-	fmt.Printf("Number of bytes freed: %d\n", this.BytesFreed)
+func (this *Stats) Print(output io.Writer) {
+	fmt.Fprintf(output, "Current number of allocations: %d\n", this.CurAllocations)
+	fmt.Fprintf(output, "Current number of bytes allocated: %d\n", this.CurBytesAllocated)
+	fmt.Fprintf(output, "Total number of allocations: %d\n", this.TotalAllocations)
+	fmt.Fprintf(output, "Total number of bytes allocated: %d\n", this.TotalBytesAllocated)
+	fmt.Fprintf(output, "Number of bytes freed: %d\n", this.BytesFreed)
 }
 
 // MemoryAnalysis creates a new Stats struct from the current C heap
