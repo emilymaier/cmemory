@@ -8,7 +8,7 @@ import "C"
 
 import "os"
 
-import "cmemory"
+import "github.com/emilymaier/cmemory"
 
 func main() {
 	cmemory.StartInstrumentation()
