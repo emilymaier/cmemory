@@ -1,3 +1,4 @@
+// Copyright © 2014 Emily Maier
 // Package cmemory contains tools for C memory allocation.
 package cmemory
 

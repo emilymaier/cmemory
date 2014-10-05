@@ -1,3 +1,5 @@
+// Copyright © 2014 Emily Maier
+
 #define _GNU_SOURCE
 
 #include <dlfcn.h>

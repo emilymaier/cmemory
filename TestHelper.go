@@ -1,3 +1,4 @@
+// Copyright © 2014 Emily Maier
 // +build test
 
 package cmemory

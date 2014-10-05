@@ -1,3 +1,5 @@
+// Copyright © 2014 Emily Maier
+
 package cmemory
 
 import (

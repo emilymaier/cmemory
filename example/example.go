@@ -1,3 +1,4 @@
+// Copyright © 2014 Emily Maier
 // Package example contains a sample memory-leaking program with leaks detected by cmemory.
 package main
 
