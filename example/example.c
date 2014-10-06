@@ -24,3 +24,8 @@ void c_main()
 	free(freed_block);
 	leaked_block = (char*) 1; // prevent call stack optimization
 }
+
+void c_untracked()
+{
+	malloc(128);
+}

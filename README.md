@@ -10,7 +10,7 @@ cmemory is a Go library to help write cgo code. It provides a wrapper for C memo
 go get -u github.com/emilymaier/cmemory
 ```
 
-cmemory does not have any dependencies other than Go itself.
+cmemory does not have any Go dependencies. It has not been tested against libc other than glibc.
 
 ## Components
 

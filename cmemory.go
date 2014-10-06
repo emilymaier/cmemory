@@ -1,5 +1,11 @@
 // Copyright © 2014 Emily Maier
-// Package cmemory contains tools for C memory allocation.
+
+/*
+Tools for managing C memory allocations.
+
+A working example is in the example/ directory. More information can be found in
+the README.md file.
+*/
 package cmemory
 
 /*
@@ -7,6 +13,7 @@ package cmemory
 #cgo LDFLAGS: -ldl
 
 void start_instrumentation();
+void stop_instrumentation();
 */
 import "C"
 
@@ -225,6 +232,21 @@ var bytesFreed uint64
 // StartInstrumentation begins recording all C memory allocations and frees.
 func StartInstrumentation() {
 	C.start_instrumentation()
+}
+
+// Stops recording C memory allocations and frees.
+func StopInstrumentation() {
+	C.stop_instrumentation()
+}
+
+// Resets the C memory statistics. Not safe to use while instrumentation is in
+// progress.
+func ResetInstrumentation() {
+	blocks = make(map[string]*block)
+	addresses = make(map[unsafe.Pointer]*block)
+	allocationCount = 0
+	bytesAllocated = 0
+	bytesFreed = 0
 }
 
 //export instrumentMalloc

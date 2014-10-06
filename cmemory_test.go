@@ -4,7 +4,6 @@ package cmemory
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -279,7 +278,38 @@ func TestClose(t *testing.T) {
 	}
 }
 
+func TestInstrumentation(t *testing.T) {
+	ResetInstrumentation()
+	StartInstrumentation()
+	block1, err := Alloc(256)
+	if err != nil {
+		t.Error("Alloc() failed to allocate C block")
+	}
+	// make sure block1 is used
+	if block1 == nil {
+		t.Fatal("How did you get here?")
+	}
+	stats := MemoryAnalysis()
+	if stats.TotalBytesAllocated != 256 {
+		t.Error("StartInstrumentation() failed to start instrumenting")
+	}
+	StopInstrumentation()
+	block2, err := Alloc(256)
+	if err != nil {
+		t.Error("Alloc() failed to allocate C block")
+	}
+	// make sure block2 is used
+	if block2 == nil {
+		t.Fatal("How did you get here?")
+	}
+	stats = MemoryAnalysis()
+	if stats.TotalBytesAllocated != 256 {
+		t.Error("StopInstrumentation() failed to stop instrumenting")
+	}
+}
+
 func TestLeaks(t *testing.T) {
+	ResetInstrumentation()
 	StartInstrumentation()
 	block1, err := Alloc(256)
 	if err != nil {
@@ -298,6 +328,7 @@ func TestLeaks(t *testing.T) {
 		t.Error("Grow() failed to allocated C block")
 	}
 	finalizeMemory(block2)
+	// make sure block1 is used
 	if block1 == nil {
 		t.Fatal("How did you get here?")
 	}
@@ -313,7 +344,6 @@ func TestLeaks(t *testing.T) {
 		t.Error("MemoryAnalysis() gave the wrong number of total allocations")
 	}
 	if stats.TotalBytesAllocated != 480 {
-		t.Error(fmt.Sprint(stats.TotalBytesAllocated))
 		t.Error("MemoryAnalysis() gave the wrong number of total bytes allocated")
 	}
 	if stats.BytesFreed != 160 {

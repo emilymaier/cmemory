@@ -112,6 +112,16 @@ void start_instrumentation()
 	pthread_mutex_unlock(&mutex);
 }
 
+// End instrumenting memory allocation calls.
+void stop_instrumentation()
+{
+	pthread_once(&initializer, initialize);
+	while(!initialized);
+	pthread_mutex_lock(&mutex);
+	instrumenting = 0;
+	pthread_mutex_unlock(&mutex);
+}
+
 void* malloc(size_t size)
 {
 	pthread_once(&initializer, initialize);
